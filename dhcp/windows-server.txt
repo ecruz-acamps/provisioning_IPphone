@@ -1,0 +1,7 @@
+Windows Server DHCP (Gerenciador DHCP):
+  Escopo da rede dos telefones > Opções de Escopo > Configurar Opções
+  > marcar "066 Nome do Host do Servidor de Inicialização"
+  > valor: 192.168.1.20  (IP do servidor de provisionamento)
+
+PowerShell:
+  Set-DhcpServerv4OptionValue -ScopeId 192.168.1.0 -OptionId 66 -Value "192.168.1.20"

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" type="autoprovisioning:TIP125"?>
+<autoprovisioning>
+	<tab_voip_account>
+		<account value="0">
+			<PhoneNumber>1001</PhoneNumber>
+			<CallerIDName>1001</CallerIDName>	
+			<AuthUserName>intelbras</AuthUserName>
+			<AuthPassword>12345</AuthPassword>
+			<ServerAddress>sip.intelbras.com.br</ServerAddress>
+			<ServerPort>5060</ServerPort>
+			<SendRegister>1</SendRegister>
+            <RegisterTimer>90</RegisterTimer>
+		</account>
+	</tab_voip_account>
+	<tab_tel_account>
+		<account value="0">
+			<AccountActive>1</AccountActive>
+			<EnableMWI>1</EnableMWI>			
+			<TypeDTMF>1</TypeDTMF>	
+			<PayloadDTMF>101</PayloadDTMF>	
+			<DTMFinfoType>1</DTMFinfoType>	
+			<FlashEvents>2</FlashEvents>			
+		</account>
+	</tab_tel_account>			
+	<tab_codecs>
+		<account value="0">
+			<codec type="18" priority="1"  ptime="20"/>
+			<codec type="0"  priority="2"  ptime="20"/>
+			<codec type="8"  priority="3"  ptime="20"/>
+			<codec type="2"  priority="-1" ptime="20"/>
+			<codec type="9"  priority="-2" ptime="20"/>	
+		</account>
+	</tab_codecs>	
+	<tab_dial_plan>
+		<account value="0">
+			<EnableDialPlan>1</EnableDialPlan>	
+			<DialPlan>x.T</DialPlan>	
+		</account>
+	</tab_dial_plan>		
+	<tab_suplementary_service>
+		<account value="0">
+			<AllowCallWaiting>1</AllowCallWaiting>	
+			<AnonymousCallReject>0</AnonymousCallReject>
+		</account>
+	</tab_suplementary_service>						
+</autoprovisioning>

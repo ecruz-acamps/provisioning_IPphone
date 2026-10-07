@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8" type="autoprovisioning:TIP120"?>
+<autoprovisioning>
+  <tab_voip_account>
+    <account value="0">
+      <SendRegister>1</SendRegister>
+      <RegisterTimer>90</RegisterTimer>
+      <PhoneNumber></PhoneNumber>
+      <CallerIDName></CallerIDName>
+      <AuthUserName></AuthUserName>
+      <AuthPassword></AuthPassword>
+      <ServerAddress></ServerAddress>
+      <ServerPort>5060</ServerPort>
+      <LocalPort>5060</LocalPort>
+      <Transport>0</Transport>
+      <EnableOutboundProxy>0</EnableOutboundProxy>
+      <OutboundProxyAddr></OutboundProxyAddr>
+      <OutboundProxyPort>5060</OutboundProxyPort>
+      <TypeNAT>0</TypeNAT>
+      <AddressNatIP></AddressNatIP>
+      <StunServerIP></StunServerIP>
+      <StunServerPort></StunServerPort>
+      <EnableInviteTimer>0</EnableInviteTimer>
+      <TimeInviteTimer>90</TimeInviteTimer>
+      <TimeSessionTimerInvite>180</TimeSessionTimerInvite>
+      <ParameterRPORT>1</ParameterRPORT>
+      <supportPRACk>0</supportPRACk>
+      <EncodeUserParam>0</EncodeUserParam>      
+    </account>
+  </tab_voip_account> 
+  <tab_tel_account>
+    <account value="0">
+      <AccountActive>0</AccountActive>
+      <EnableMWI>0</EnableMWI>
+      <TimerSubscribeMWI>1800</TimerSubscribeMWI>
+      <TypeDTMF>1</TypeDTMF>
+      <PayloadDTMF>101</PayloadDTMF>
+      <DTMFinfoType>1</DTMFinfoType>
+      <FlashEvents>2</FlashEvents>
+      <SupportE164>0</SupportE164>
+      <Vad>0</Vad>
+      <Cng>0</Cng>
+      <RingType>1</RingType>
+      <CodeRefuseReject>486</CodeRefuseReject>
+      <CodeDNDReject>486</CodeDNDReject>
+    </account>
+  </tab_tel_account>  
+  <tab_suplementary_service>
+    <account value="0">
+      <AllowCallWaiting>0</AllowCallWaiting>
+      <BeepCallWaiting>1</BeepCallWaiting>
+      <CallerIdBlock>0</CallerIdBlock>
+      <AnonymousCallReject>0</AnonymousCallReject>
+      <QuickDialType>1</QuickDialType>
+      <InterDigitTimer>4</InterDigitTimer>
+    </account>
+  </tab_suplementary_service> 
+  <tab_service_code>
+    <account value="0">
+      <Hotline>0</Hotline>
+      <HotlineNumber></HotlineNumber>
+      <HotlineTime>7</HotlineTime>
+      <VoiceMail></VoiceMail>
+      <ServiceCode>1</ServiceCode>
+      <CodeDNDOn>*31</CodeDNDOn>
+      <CodeDNDOff>*32</CodeDNDOff>
+      <CodeCFWCondOn>*61</CodeCFWCondOn>
+      <CodeCFWBusyOn>*51</CodeCFWBusyOn>
+      <CodeCFWAlwaysOn>*41</CodeCFWAlwaysOn>
+      <CodeCFWAlwaysOff>*42</CodeCFWAlwaysOff>
+      <CodeCallReturn>*69</CodeCallReturn>
+    </account>
+  </tab_service_code>  
+  <tab_dial_plan>
+    <account value="0">
+      <EnableDialPlan>1</EnableDialPlan>
+      <DialPlan>x.T</DialPlan>
+    </account>
+  </tab_dial_plan> 
+  <tab_media>
+    <account value="0">
+      <MinPortRTP>6000</MinPortRTP>
+      <MaxPortRTP>8000</MaxPortRTP>
+      <HoldCallType>0</HoldCallType>
+      <SecurityRTP>0</SecurityRTP> 
+    </account>
+  </tab_media>     
+  <tab_codecs>
+    <account value="0">
+      <codec type="18" priority="1"  ptime="20"/>
+      <codec type="0"  priority="2"  ptime="20"/>
+      <codec type="8"  priority="3"  ptime="20"/>
+      <codec type="2"  priority="-1" ptime="20"/>
+      <codec type="9"  priority="-2" ptime="20"/>   
+    </account>
+  </tab_codecs>
+  <tab_soft_currentconfig>
+    <CurVolumeHandPhone>5</CurVolumeHandPhone>
+    <CurVolMicHandPhone>5</CurVolMicHandPhone>
+    <CurVolumeHeadPhone>5</CurVolumeHeadPhone>
+    <CurVolMicHeadPhone>5</CurVolMicHeadPhone>
+    <CurVolumeRing>5</CurVolumeRing>
+  </tab_soft_currentconfig>
+  <tab_update_provisioning> 
+    <UPDProvisioningEnable>1</UPDProvisioningEnable>
+    <UPDProvisioningServerURL></UPDProvisioningServerURL>
+    <UPDProvisioningPath></UPDProvisioningPath>
+    <UPDProvisioningProtocol>3</UPDProvisioningProtocol>
+    <UPDProvisioningAuthType>2</UPDProvisioningAuthType>
+    <UPDProvisioningUsername></UPDProvisioningUsername>
+    <UPDProvisioningPassword></UPDProvisioningPassword>
+  </tab_update_provisioning>
+</autoprovisioning>

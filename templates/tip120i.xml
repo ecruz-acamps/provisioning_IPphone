@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" type="autoprovisioning:TIP120"?>
+<autoprovisioning>
+	<tab_voip_account>
+		<account value="0">
+			<PhoneNumber>{{USUARIO}}</PhoneNumber>
+			<CallerIDName>{{EXIBICAO}}</CallerIDName>
+			<AuthUserName>{{USUARIO}}</AuthUserName>
+			<AuthPassword>{{SENHA}}</AuthPassword>
+			<ServerAddress>{{SIP_SERVER}}</ServerAddress>
+			<ServerPort>{{SIP_PORT}}</ServerPort>
+			<Transport>0</Transport>
+			<SendRegister>1</SendRegister>
+			<RegisterTimer>{{SIP_REG_TTL}}</RegisterTimer>
+			<ParameterRPORT>1</ParameterRPORT>
+			<supportPRACk>1</supportPRACk>
+			<EncodeUserParam>1</EncodeUserParam>
+		</account>
+	</tab_voip_account>
+	<tab_tel_account>
+		<account value="0">
+			<AccountActive>1</AccountActive>
+			<EnableMWI>0</EnableMWI>
+			<TypeDTMF>1</TypeDTMF>
+			<PayloadDTMF>101</PayloadDTMF>
+			<DTMFinfoType>1</DTMFinfoType>
+			<FlashEvents>2</FlashEvents>
+			<Vad>0</Vad>
+		</account>
+	</tab_tel_account>
+	<tab_codecs>
+		<account value="0">
+			<codec type="18" priority="1"  ptime="20"/>
+			<codec type="0"  priority="2"  ptime="20"/>
+			<codec type="8"  priority="3"  ptime="20"/>
+			<codec type="2"  priority="-1" ptime="20"/>
+			<codec type="9"  priority="-2" ptime="20"/>
+		</account>
+	</tab_codecs>
+	<tab_dial_plan>
+		<account value="0">
+			<EnableDialPlan>1</EnableDialPlan>
+			<DialPlan>x.T</DialPlan>
+		</account>
+	</tab_dial_plan>
+	<tab_suplementary_service>
+		<account value="0">
+			<AllowCallWaiting>0</AllowCallWaiting>
+			<CallerIdBlock>0</CallerIdBlock>
+			<AnonymousCallReject>0</AnonymousCallReject>
+			<QuickDialType>0</QuickDialType>
+		</account>
+	</tab_suplementary_service>
+	<tab_media>
+		<account value="0">
+			<MinPortRTP>10000</MinPortRTP>
+			<MaxPortRTP>10199</MaxPortRTP>
+		</account>
+	</tab_media>
+</autoprovisioning>
