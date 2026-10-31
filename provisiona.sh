@@ -237,6 +237,7 @@ testar() {
   command -v curl >/dev/null || erro "instale o curl para testar (apt install curl)"
   token="ok-$(date +%s)-$$"
   printf '%s\n' "$token" > "$PROV_DIR/$arq"; chmod 644 "$PROV_DIR/$arq"
+  echo "(arquivo temporário só para o teste, apagado no fim; os telefones recebem .xml ou .cfg)"
   for proto in HTTP TFTP FTP; do
     url="${proto,,}://$host/$arq"
     obtido="$(curl -s --noproxy '*' -m 6 "$url" 2>/dev/null | tr -d '\r' || true)"
