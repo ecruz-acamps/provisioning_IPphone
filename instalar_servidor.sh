@@ -5,6 +5,7 @@
 #
 #  Uso:  sudo ./instalar_servidor.sh [--rede "192.168.0.0/16 10.0.0.0/8"] [--sem-ftp] [--sem-painel]
 #                                    [--repo URL] [--branch main] [--local]
+#                                    [--auto-atualizar | --sem-auto-atualizar]
 #
 #  Instalação direto do GitHub (servidor novo, sem baixar nada antes):
 #    curl -fsSL https://raw.githubusercontent.com/ecruz-acamps/provisioning_IPphone/main/instalar_servidor.sh | sudo bash
@@ -25,11 +26,21 @@
 #  A rede dos telefones fica em REDE_TELEFONES no provisiona.conf e pode ser
 #  trocada depois pelo painel (Configurações). --rede só é necessário na
 #  primeira instalação; sem ele, a rede já salva é mantida.
+#
+#  Atualizar depois:  sudo provisiona-atualizar
+#  As opções usadas (repo, branch, --sem-ftp, --sem-painel, --auto-atualizar)
+#  ficam em /etc/default/provisionamento e valem nas próximas atualizações.
+#  --auto-atualizar  confere o GitHub a cada 10 minutos e atualiza sozinho
+#                    quando houver commit novo no branch (timer systemd).
 # =====================================================================
 set -euo pipefail
-REDE=""; FTP=sim; PAINEL=sim
-REPO="${PROVISIONA_REPO:-https://github.com/ecruz-acamps/provisioning_IPphone.git}"
-BRANCH="${PROVISIONA_BRANCH:-main}"; LOCAL=nao
+REDE=""; FTP=sim; PAINEL=sim; AUTO_ATUALIZAR=nao
+REPO="https://github.com/ecruz-acamps/provisioning_IPphone.git"; BRANCH=main
+OPCOES=/etc/default/provisionamento
+# opções da instalação anterior (gravadas no fim deste script)
+# shellcheck source=/dev/null
+[ -f "$OPCOES" ] && . "$OPCOES"
+REPO="${PROVISIONA_REPO:-$REPO}"; BRANCH="${PROVISIONA_BRANCH:-$BRANCH}"; LOCAL=nao
 SRC_DIR=/opt/provisionamento-src
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -40,6 +51,8 @@ while [ $# -gt 0 ]; do
     --repo)   REPO="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
     --local)  LOCAL=sim; shift ;;
+    --auto-atualizar) AUTO_ATUALIZAR=sim; shift ;;
+    --sem-auto-atualizar) AUTO_ATUALIZAR=nao; shift ;;
     *) echo "opção desconhecida: $1" >&2; exit 1 ;;
   esac
 done
@@ -103,6 +116,7 @@ REDE="$(sed -n 's/^REDE_TELEFONES="\{0,1\}\([^"]*\)"\{0,1\}.*/\1/p' "$APP_DIR/pr
 # Script que aplica a rede no nginx/ufw roda como root: fica fora de $APP_DIR
 # (que pertence ao usuário do painel) para ele não poder alterá-lo.
 install -o root -g root -m 755 "$ORIGEM/aplicar_rede.sh" /usr/local/sbin/provisiona-aplicar-rede
+install -o root -g root -m 755 "$ORIGEM/atualizar.sh" /usr/local/sbin/provisiona-atualizar
 ln -sf "$APP_DIR/provisiona.sh" /usr/local/bin/provisiona
 for s in "$APP_DIR"/create_modelo_*.sh; do ln -sf "$s" "/usr/local/bin/$(basename "$s")"; done
 chmod 755 "$PROV_DIR"
@@ -238,6 +252,49 @@ systemctl daemon-reload
 systemctl enable --now provisiona-rede.path
 /usr/local/sbin/provisiona-aplicar-rede --forcar
 
+echo ">> Gravando opções em $OPCOES (usadas pelo provisiona-atualizar)"
+cat > "$OPCOES" <<CONF
+# Gerado por instalar_servidor.sh. Lido pelo instalador e por provisiona-atualizar.
+REPO="$REPO"
+BRANCH="$BRANCH"
+FTP="$FTP"
+PAINEL="$PAINEL"
+AUTO_ATUALIZAR="$AUTO_ATUALIZAR"
+CONF
+chmod 644 "$OPCOES"
+
+cat > /etc/systemd/system/provisiona-atualizar.service <<CONF
+[Unit]
+Description=Atualiza o servidor de provisionamento a partir do GitHub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/provisiona-atualizar
+CONF
+cat > /etc/systemd/system/provisiona-atualizar.timer <<CONF
+[Unit]
+Description=Confere atualizações do servidor de provisionamento a cada 10 minutos
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
+CONF
+systemctl daemon-reload
+if [ "$AUTO_ATUALIZAR" = sim ]; then
+  # sem --now: se esta instalação foi chamada pelo próprio timer, não se reinicia
+  systemctl enable provisiona-atualizar.timer >/dev/null 2>&1
+  systemctl start provisiona-atualizar.timer
+  echo ">> Atualização automática LIGADA (a cada 10 min; desligar: --sem-auto-atualizar)"
+else
+  systemctl disable --now provisiona-atualizar.timer >/dev/null 2>&1 || true
+fi
+
 IP="$(hostname -I | awk '{print $1}')"
 cat <<FIM
 
@@ -245,6 +302,7 @@ Pronto. Servidor de provisionamento em $IP
   TFTP: tftp://$IP/        HTTP: http://$IP/$( [ "$FTP" = sim ] && echo "        FTP: ftp://$IP/" )
   Arquivos:      $PROV_DIR
   Scripts:       $APP_DIR   (comando: provisiona)
+  Atualizar:     sudo provisiona-atualizar$( [ "$AUTO_ATUALIZAR" = sim ] && echo "   (automático a cada 10 min: ligado)" )
 $( [ "$PAINEL" = sim ] && echo "  Painel web:    http://$IP:8080/   usuário admin" )
 $( [ -n "$SENHA_MSG" ] && echo "  $SENHA_MSG   (anote; trocar: sudo -u provisiona python3 $APP_DIR/painel/painel.py --definir-senha)" )
 
@@ -253,6 +311,11 @@ Próximos passos:
   2. Aponte o DHCP da rede para este servidor (opção 66 = $IP). Veja $APP_DIR/dhcp/
   3. provisiona gerar tip235g 24fd0d350b0d 3310 4480 DIOMAI-CT
 FIM
+
+# provisiona-atualizar compara com isto para saber se há versão nova
+mkdir -p /var/lib/provisionamento
+git -C "$ORIGEM" rev-parse HEAD > /var/lib/provisionamento/versao-instalada 2>/dev/null \
+  || rm -f /var/lib/provisionamento/versao-instalada
 
 echo ">> Testando os serviços"
 sleep 1
