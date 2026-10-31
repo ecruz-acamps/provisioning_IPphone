@@ -159,12 +159,25 @@ dialog .rodape { display: flex; justify-content: flex-end; gap: 8px; margin-top:
   <!-- CONFIG -->
   <section id="aba-config" class="oculto">
     <div class="card">
+      <h2>PABX e rede dos telefones</h2>
+      <p class="sub">Mudar o PABX recria os arquivos de todos os telefones na hora; cada aparelho pega o novo endereço ao reiniciar.</p>
+      <form id="fRede" onsubmit="return false">
+        <div class="grade">
+          <div class="campo"><label>IP do PABX (servidor SIP)</label><input name="SIP_SERVER" class="mono" required placeholder="172.20.1.18"><div class="dica">IP ou nome do PABX onde os ramais registram</div></div>
+          <div class="campo"><label>Porta SIP</label><input name="SIP_PORT" class="mono" inputmode="numeric" placeholder="5060" pattern="\d{1,5}"></div>
+          <div class="campo" style="grid-column: 1 / -1"><label>Rede dos telefones</label><input name="REDE_TELEFONES" class="mono" required placeholder="192.168.0.0/16"><div class="dica">Só essa rede pode baixar os arquivos (eles têm a senha SIP) e, com o firewall ufw ativo, abrir este painel. Várias redes: separe por espaço, ex. <span class="mono">172.20.0.0/16 10.10.0.0/24</span>. <span id="redeStatus"></span></div></div>
+        </div>
+        <div class="barra" style="margin-top:6px"><span class="esp"></span>
+          <button class="b p" onclick="salvarRede(this)">Salvar</button>
+        </div>
+      </form>
+      <pre class="saida oculto" id="saidaRede"></pre>
+    </div>
+    <div class="card">
       <h2>Configurações gerais</h2>
-      <p class="sub">Valem para todos os telefones. Depois de mudar o PABX, salve com "regerar" para atualizar os arquivos de todos.</p>
+      <p class="sub">Valem para todos os telefones. Depois de mudar, salve com "regerar" para atualizar os arquivos de todos.</p>
       <form id="fConfig" onsubmit="return false">
         <div class="grade">
-          <div class="campo"><label>Servidor SIP (PABX)</label><input name="SIP_SERVER" required></div>
-          <div class="campo"><label>Porta SIP</label><input name="SIP_PORT" inputmode="numeric"></div>
           <div class="campo"><label>Tempo de registro (s)</label><input name="SIP_REG_TTL" inputmode="numeric"></div>
           <div class="campo"><label>Servidor NTP</label><input name="NTP_SERVER"></div>
           <div class="campo"><label>Servidor NTP 2</label><input name="NTP_SERVER2"></div>
@@ -251,7 +264,7 @@ async function api(caminho, dados) {
   const op = dados === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(dados) };
   const r = await fetch(caminho, op);
   const j = await r.json().catch(() => ({ erro: "resposta inválida do servidor" }));
-  if (!r.ok && !("saida" in j)) throw new Error(j.erro || r.statusText);
+  if (!r.ok && !("saida" in j)) throw Object.assign(new Error(j.erro || r.statusText), { dados: j });
   return j;
 }
 
@@ -420,7 +433,9 @@ async function carregarAtividade() {
 async function carregarConfig() {
   CONFIG = await api("/api/config");
   const f = $("#fConfig");
-  for (const k of ["SIP_SERVER", "SIP_PORT", "SIP_REG_TTL", "NTP_SERVER", "NTP_SERVER2", "ADMIN_PASS", "PREFIXO_USUARIO", "PREFIXO_PADRAO", "SENHA_PADRAO", "FORMATO_NOME", "LCD_TITULO", "VLAN_ID"]) f.elements[k].value = CONFIG[k] || "";
+  for (const k of ["SIP_SERVER", "SIP_PORT", "REDE_TELEFONES"]) $("#fRede").elements[k].value = CONFIG[k] || "";
+  mostrarStatusRede();
+  for (const k of ["SIP_REG_TTL", "NTP_SERVER", "NTP_SERVER2", "ADMIN_PASS", "PREFIXO_USUARIO", "PREFIXO_PADRAO", "SENHA_PADRAO", "FORMATO_NOME", "LCD_TITULO", "VLAN_ID"]) f.elements[k].value = CONFIG[k] || "";
   if (!f.elements.SENHA_PADRAO.value) f.elements.SENHA_PADRAO.value = "usuario";
   $("#cfgCaminhos").innerHTML = `Arquivos servidos em <span class="mono">${esc(CONFIG.PROV_DIR)}</span> · planilha mestre <span class="mono">${esc(CONFIG.RAMAIS_CSV)}</span>`;
   $("#srvInfo").textContent = "PABX " + (CONFIG.SIP_SERVER || "?") + ":" + (CONFIG.SIP_PORT || "5060");
@@ -430,6 +445,35 @@ async function salvarConfig(bt, regerarTodos) {
   const dados = Object.fromEntries(new FormData(f)); dados.regerar = regerarTodos; bt.disabled = true;
   try { const j = await api("/api/config", dados); toast(j.ok ? "Configurações salvas." : "Salvo, mas houve falhas ao regerar."); if (regerarTodos || !j.ok) mostrarSaida("#saidaConfig", j.saida || "OK"); carregarConfig(); }
   catch (e) { mostrarSaida("#saidaConfig", e.message); }
+  bt.disabled = false;
+}
+
+function mostrarStatusRede() {
+  const st = CONFIG.REDE_STATUS || {}, el = $("#redeStatus");
+  const salva = (CONFIG.REDE_TELEFONES || "").trim();
+  if (st.estado === "ok" && st.detalhe === salva) el.innerHTML = `<span class="chip ok">aplicada ${esc(quando(st.quando))}</span>`;
+  else if (st.estado === "erro") el.innerHTML = `<span class="chip err">não aplicada: ${esc(st.detalhe)}</span>`;
+  else if (st.estado === "ok") el.innerHTML = `<span class="chip warn">aguardando aplicação</span>`;
+  else el.innerHTML = `<span class="chip">rode no servidor: sudo provisiona-aplicar-rede</span>`;
+}
+async function salvarRede(bt, confirmado) {
+  const f = $("#fRede"); if (!f.reportValidity()) return;
+  const dados = Object.fromEntries(new FormData(f));
+  if (confirmado) dados.confirmar_fora_da_rede = true;
+  bt.disabled = true; $("#saidaRede").classList.add("oculto");
+  try {
+    const j = await api("/api/config", dados);
+    toast(!j.ok ? "Salvo, mas houve falhas ao regerar." : j.regerado ? "PABX trocado e arquivos de todos os telefones recriados." : "Configurações salvas.");
+    if (!j.ok) mostrarSaida("#saidaRede", j.saida);
+    await carregarConfig();
+    // o servidor aplica a rede no nginx/firewall em segundo plano; confere logo depois
+    setTimeout(() => carregarConfig().catch(() => {}), 2500);
+  } catch (e) {
+    bt.disabled = false;
+    if (e.dados?.fora_da_rede) {
+      if (confirm(`${e.message} (${dados.REDE_TELEFONES}).\n\nSe o firewall ufw estiver ativo, este painel deixa de abrir a partir daqui. Salvar mesmo assim?`)) return salvarRede(bt, true);
+    } else mostrarSaida("#saidaRede", e.message);
+  }
   bt.disabled = false;
 }
 

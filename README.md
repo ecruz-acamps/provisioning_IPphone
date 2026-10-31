@@ -45,7 +45,8 @@ baixa sozinho o arquivo com o próprio MAC e registra o ramal.
 |---|---|
 | `provisiona.sh` | Script principal: gerar, lote (CSV), regerar, listar, remover |
 | `create_modelo_125i.sh`, `_120i`, `_125`, `_235g` | Mesma chamada do script antigo (4 parâmetros) |
-| `provisiona.conf` | IP do PABX, porta, NTP, pasta servida, senha admin (opcional) |
+| `provisiona.conf` | IP do PABX, rede dos telefones, porta, NTP, pasta servida, senha admin (opcional) |
+| `aplicar_rede.sh` | Aplica a rede dos telefones no nginx e no ufw (instalado como `provisiona-aplicar-rede`, roda como root) |
 | `modelos.conf` | Modelo → template → nome do arquivo que o telefone pede |
 | `templates/tip235g.cfg` | Template pronto do TIP 235G (formato documentado pela Intelbras) |
 | `templates/tip120i.xml`, `tip125i.xml`, `tip125.xml` | Templates XML no formato oficial da Intelbras (seção 4) |
@@ -66,9 +67,21 @@ Qualquer máquina Linux pequena na rede dos telefones serve (VM, mini PC, Raspbe
 curl -fsSL https://raw.githubusercontent.com/ecruz-acamps/provisioning_IPphone/main/instalar_servidor.sh \
   | sudo bash -s -- --rede 192.168.0.0/16                  # rede dos telefones
 #   (--sem-ftp pula o FTP; --sem-painel pula o painel web)
-
-sudo nano /opt/provisionamento/provisiona.conf             # SIP_SERVER = IP do PABX
 ```
+
+Depois, abra o painel (`http://IP-do-servidor:8080`) em **Configurações › PABX e rede dos
+telefones** e confira o **IP do PABX** e a **rede dos telefones**. Os dois podem ser trocados ali a
+qualquer momento, sem terminal:
+
+- trocar o PABX recria na hora os arquivos de todos os telefones (cada um pega ao reiniciar);
+- trocar a rede atualiza o nginx (quem pode baixar os arquivos) e, se o `ufw` estiver ativo, as
+  portas liberadas. O painel mostra "aplicada" quando o servidor terminou. Aceita várias redes
+  separadas por espaço. Se a nova rede não incluir o seu computador, o painel avisa antes, porque
+  com `ufw` ativo ele deixaria de abrir.
+
+Pelo terminal continua valendo: edite `SIP_SERVER` / `REDE_TELEFONES` em
+`/opt/provisionamento/provisiona.conf`, depois `provisiona regerar` (PABX) ou
+`sudo provisiona-aplicar-rede` (rede).
 
 O instalador clona o repositório em `/opt/provisionamento-src` e instala a partir dele.
 **Para atualizar**, rode o mesmo comando de novo: ele baixa a versão mais nova do GitHub e
@@ -220,13 +233,17 @@ aparece no fim da instalação). Pelo navegador, inclusive no celular, dá para:
 - **Modelos:** ver quais templates estão prontos e importar o backup de um TIP 120i/125i/125;
 - **Atividade:** cada download por HTTP, TFTP ou FTP, com o nome exato do arquivo que o aparelho pediu
   (é aqui que se confirma o item 1 da seção 5);
-- **Configurações:** IP do PABX, porta, NTP, senha admin dos telefones, e regerar todos;
+- **Configurações:** IP do PABX e rede dos telefones (com validação), porta, NTP, senha admin
+  dos telefones, e regerar todos;
 - **Baixar planilha:** backup do cadastro em CSV.
 - **Topo da página:** status de HTTP, TFTP e FTP (✓/✗), testado ao abrir o painel.
 
 O painel usa os mesmos scripts do terminal, então os dois podem ser usados juntos.
 Trocar a senha: `sudo -u provisiona python3 /opt/provisionamento/painel/painel.py --definir-senha`
-e `sudo systemctl restart provisiona-painel`. O painel roda como usuário `provisiona` (sem root),
+e `sudo systemctl restart provisiona-painel`. O painel roda como usuário `provisiona` (sem root):
+para trocar a rede ele só grava `REDE_TELEFONES` no `provisiona.conf`, e a unidade systemd
+`provisiona-rede.path` roda `provisiona-aplicar-rede` como root, que valida a rede antes de mexer
+no nginx/ufw. O painel
 bloqueia o IP por 5 minutos após 5 senhas erradas e só deve ficar acessível na rede interna:
 não exponha a porta 8080 para a internet (o login trafega sem HTTPS).
 

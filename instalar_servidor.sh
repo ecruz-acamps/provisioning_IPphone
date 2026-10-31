@@ -3,7 +3,7 @@
 #  instalar_servidor.sh - monta o servidor de provisionamento em um
 #  Debian 12 / Ubuntu 22.04+ limpo (rodar como root).
 #
-#  Uso:  sudo ./instalar_servidor.sh [--rede 192.168.0.0/16] [--sem-ftp] [--sem-painel]
+#  Uso:  sudo ./instalar_servidor.sh [--rede "192.168.0.0/16 10.0.0.0/8"] [--sem-ftp] [--sem-painel]
 #                                    [--repo URL] [--branch main] [--local]
 #
 #  Instalação direto do GitHub (servidor novo, sem baixar nada antes):
@@ -21,9 +21,13 @@
 #  Copia os scripts para /opt/provisionamento e cria o comando
 #  "provisiona" em /usr/local/bin.
 #  NÃO mexe no DHCP da rede: veja a pasta dhcp/ e o README.
+#
+#  A rede dos telefones fica em REDE_TELEFONES no provisiona.conf e pode ser
+#  trocada depois pelo painel (Configurações). --rede só é necessário na
+#  primeira instalação; sem ele, a rede já salva é mantida.
 # =====================================================================
 set -euo pipefail
-REDE="192.168.0.0/16"; FTP=sim; PAINEL=sim
+REDE=""; FTP=sim; PAINEL=sim
 REPO="${PROVISIONA_REPO:-https://github.com/ecruz-acamps/provisioning_IPphone.git}"
 BRANCH="${PROVISIONA_BRANCH:-main}"; LOCAL=nao
 SRC_DIR=/opt/provisionamento-src
@@ -40,6 +44,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ "$(id -u)" -eq 0 ] || { echo "rode como root (sudo)" >&2; exit 1; }
+case "$REDE" in *[!0-9A-Fa-f.:/,\ ]*) echo "--rede inválida: $REDE (ex.: 192.168.0.0/16)" >&2; exit 1 ;; esac
 ORIGEM="$(cd "$(dirname "$(readlink -f "$0")")" 2>/dev/null && pwd || pwd)"
 PROV_DIR=/srv/provisionamento
 APP_DIR=/opt/provisionamento
@@ -83,6 +88,21 @@ if [ "$ORIGEM" != "$APP_DIR" ]; then
 fi
 chmod 755 "$APP_DIR"/*.sh
 chmod 600 "$APP_DIR/provisiona.conf"
+
+# Rede dos telefones: --rede grava no provisiona.conf; sem --rede mantém a já salva.
+if [ -n "$REDE" ]; then
+  if grep -q '^REDE_TELEFONES=' "$APP_DIR/provisiona.conf"; then
+    sed -i "s|^REDE_TELEFONES=.*|REDE_TELEFONES=\"$REDE\"|" "$APP_DIR/provisiona.conf"
+  else
+    printf '\n# Rede dos telefones (quem pode baixar os arquivos). Editável no painel.\nREDE_TELEFONES="%s"\n' "$REDE" >> "$APP_DIR/provisiona.conf"
+  fi
+elif ! grep -q '^REDE_TELEFONES=' "$APP_DIR/provisiona.conf"; then
+  printf '\n# Rede dos telefones (quem pode baixar os arquivos). Editável no painel.\nREDE_TELEFONES="192.168.0.0/16"\n' >> "$APP_DIR/provisiona.conf"
+fi
+REDE="$(sed -n 's/^REDE_TELEFONES="\{0,1\}\([^"]*\)"\{0,1\}.*/\1/p' "$APP_DIR/provisiona.conf" | head -1)"
+# Script que aplica a rede no nginx/ufw roda como root: fica fora de $APP_DIR
+# (que pertence ao usuário do painel) para ele não poder alterá-lo.
+install -o root -g root -m 755 "$ORIGEM/aplicar_rede.sh" /usr/local/sbin/provisiona-aplicar-rede
 ln -sf "$APP_DIR/provisiona.sh" /usr/local/bin/provisiona
 for s in "$APP_DIR"/create_modelo_*.sh; do ln -sf "$s" "/usr/local/bin/$(basename "$s")"; done
 chmod 755 "$PROV_DIR"
@@ -118,15 +138,15 @@ server {
     access_log /var/log/nginx/provisionamento.log;
 
     # Os arquivos têm senha SIP: só a rede dos telefones pode baixar.
-    allow $REDE;
-    allow 127.0.0.1;
-    deny all;
+    # (allow/deny gerados por provisiona-aplicar-rede a partir de REDE_TELEFONES)
+    include /etc/nginx/provisionamento-rede.conf;
 
     location ~ /\. { deny all; }
     location / { try_files \$uri =404; default_type text/plain; }
 }
 CONF
 rm -f /etc/nginx/sites-enabled/default
+/usr/local/sbin/provisiona-aplicar-rede --forcar
 ln -sf /etc/nginx/sites-available/provisionamento /etc/nginx/sites-enabled/provisionamento
 nginx -t
 systemctl enable --now nginx
@@ -192,13 +212,31 @@ CONF
   systemctl restart provisiona-painel
 fi
 
-if command -v ufw >/dev/null && ufw status | grep -q active; then
-  echo ">> Liberando portas no ufw para $REDE"
-  ufw allow from "$REDE" to any port 69 proto udp
-  ufw allow from "$REDE" to any port 80 proto tcp
-  [ "$FTP" = sim ] && ufw allow from "$REDE" to any port 21,40000:40100 proto tcp
-  [ "$PAINEL" = sim ] && ufw allow from "$REDE" to any port 8080 proto tcp
-fi
+echo ">> Rede dos telefones: $REDE (nginx e ufw; trocar no painel em Configurações)"
+# Quando provisiona.conf muda (ex.: painel salvou outra rede), o systemd
+# roda provisiona-aplicar-rede como root, que atualiza nginx e ufw.
+cat > /etc/systemd/system/provisiona-rede.service <<CONF
+[Unit]
+Description=Aplica a rede dos telefones (REDE_TELEFONES) no nginx e no ufw
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/provisiona-aplicar-rede
+CONF
+cat > /etc/systemd/system/provisiona-rede.path <<CONF
+[Unit]
+Description=Observa provisiona.conf para aplicar a rede dos telefones
+
+[Path]
+PathChanged=$APP_DIR/provisiona.conf
+Unit=provisiona-rede.service
+
+[Install]
+WantedBy=multi-user.target
+CONF
+systemctl daemon-reload
+systemctl enable --now provisiona-rede.path
+/usr/local/sbin/provisiona-aplicar-rede --forcar
 
 IP="$(hostname -I | awk '{print $1}')"
 cat <<FIM
@@ -211,7 +249,7 @@ $( [ "$PAINEL" = sim ] && echo "  Painel web:    http://$IP:8080/   usuário adm
 $( [ -n "$SENHA_MSG" ] && echo "  $SENHA_MSG   (anote; trocar: sudo -u provisiona python3 $APP_DIR/painel/painel.py --definir-senha)" )
 
 Próximos passos:
-  1. Informe o IP do PABX no painel (Configurações) ou em $APP_DIR/provisiona.conf
+  1. No painel (Configurações), confira o IP do PABX e a rede dos telefones
   2. Aponte o DHCP da rede para este servidor (opção 66 = $IP). Veja $APP_DIR/dhcp/
   3. provisiona gerar tip235g 24fd0d350b0d 3310 4480 DIOMAI-CT
 FIM
