@@ -46,6 +46,7 @@ baixa sozinho o arquivo com o próprio MAC e registra o ramal.
 | `provisiona.sh` | Script principal: gerar, lote (CSV), regerar, listar, remover |
 | `create_modelo_125i.sh`, `_120i`, `_125`, `_235g` | Mesma chamada do script antigo (4 parâmetros) |
 | `provisiona.conf` | IP do PABX, rede dos telefones, porta, NTP, pasta servida, senha admin (opcional) |
+| `atualizar.sh` | Atualiza o servidor pelo GitHub (instalado como `provisiona-atualizar`) |
 | `aplicar_rede.sh` | Aplica a rede dos telefones no nginx e no ufw (instalado como `provisiona-aplicar-rede`, roda como root) |
 | `modelos.conf` | Modelo → template → nome do arquivo que o telefone pede |
 | `templates/tip235g.cfg` | Template pronto do TIP 235G (formato documentado pela Intelbras) |
@@ -84,8 +85,33 @@ Pelo terminal continua valendo: edite `SIP_SERVER` / `REDE_TELEFONES` em
 `sudo provisiona-aplicar-rede` (rede).
 
 O instalador clona o repositório em `/opt/provisionamento-src` e instala a partir dele.
-**Para atualizar**, rode o mesmo comando de novo: ele baixa a versão mais nova do GitHub e
-mantém `provisiona.conf`, `ramais.csv`, a senha do painel e os templates já existentes.
+
+### 3.0 Atualizar o servidor
+
+```bash
+sudo provisiona-atualizar              # baixa do GitHub e reinstala se houver versão nova
+sudo provisiona-atualizar --verificar  # só mostra se há versão nova
+```
+
+Mantém `provisiona.conf`, `ramais.csv`, a senha do painel e os templates já existentes, e repete
+as opções da instalação (`--sem-ftp`, `--sem-painel`, repositório e branch), que ficam gravadas em
+`/etc/default/provisionamento`.
+
+**Atualização automática:** instale (ou reinstale) com `--auto-atualizar`. O servidor passa a
+conferir o GitHub a cada 10 minutos e se atualiza sozinho quando há commit novo no branch, ou seja,
+fazer o merge de um PR na `main` basta. Acompanhar: `journalctl -u provisiona-atualizar -f`.
+Desligar: rodar o instalador com `--sem-auto-atualizar`. Se uma atualização falhar no meio, ela é
+tentada de novo na próxima rodada.
+
+**Servidor instalado antes deste comando existir:** rode o instalador uma vez pelo GitHub (os
+dados são mantidos); a partir daí `provisiona-atualizar` já existe:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ecruz-acamps/provisioning_IPphone/main/instalar_servidor.sh \
+  | sudo bash -s -- --auto-atualizar
+```
+
+Se ele foi instalado com `--sem-ftp` ou `--sem-painel`, repita essas opções nessa primeira vez.
 
 Outras formas:
 - repositório privado ou fork: `git clone` com suas credenciais e rode
