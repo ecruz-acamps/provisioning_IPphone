@@ -47,4 +47,4 @@ fi
 git -C "$SRC_DIR" reset -q --hard FETCH_HEAD
 echo ">> Atualizando para $(git -C "$SRC_DIR" log -1 --format='%h %cd %s' --date=short)"
 # O instalador novo (não o que estava rodando) faz o resto, a partir da cópia já baixada.
-exec bash "$SRC_DIR/instalar_servidor.sh" --local
+exec bash "$SRC_DIR/instalar_servidor.sh" --local --sem-perguntas

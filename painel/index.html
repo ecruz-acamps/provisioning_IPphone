@@ -309,9 +309,13 @@ function desenharRamais() {
       <td class="col-opc">${r.gerado ? `<a href="#" class="mono" onclick="verArquivo('${r.mac}');return false">${esc(r.arquivo)}</a>` : '<span class="chip err">não gerado</span>'}</td>
       <td class="col-opc">${r.ultimo ? `<span class="chip ${r.ultimo.ok ? "ok" : "warn"}" title="${esc(r.ultimo.ip)} via ${r.ultimo.via}">${quando(r.ultimo.quando)}</span>` : '<span class="chip">nunca</span>'}</td>
       <td class="acoes"><button class="b" onclick="abrirRamal('${r.mac}')">Editar</button> <button class="b d" onclick="removerRamal('${r.mac}')">Remover</button></td>
-    </tr>`).join("") : `<tr><td colspan="8" class="vazio">${RAMAIS.length ? "Nada encontrado." : "Nenhum ramal ainda. Clique em “+ Novo ramal” ou importe uma planilha."}</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="8" class="vazio">${RAMAIS.length ? "Nada encontrado." : `<b>Nenhum telefone cadastrado ainda.</b><br>
+      1. Confira o IP do PABX e a rede dos telefones em <a href="#" onclick="irPara('config');return false">Configurações</a>.<br>
+      2. Clique em <a href="#" onclick="abrirRamal();return false">“+ Novo ramal”</a> e informe modelo, MAC, ramal e nome: o arquivo do telefone é gerado na hora.<br>
+      Vários de uma vez: <a href="#" onclick="irPara('lote');return false">Importar planilha</a>.`}</td></tr>`;
 }
 $("#busca").oninput = desenharRamais;
+function irPara(aba) { document.querySelector(`#abas button[data-aba="${aba}"]`).click(); }
 
 function opcoesModelo(sel) {
   $("#selModelo").innerHTML = MODELOS.map(m => `<option value="${esc(m.modelo)}" ${m.modelo === sel ? "selected" : ""} ${m.pronto ? "" : "disabled"}>${esc(m.modelo.toUpperCase())}${m.pronto ? "" : " (template não importado)"}</option>`).join("");

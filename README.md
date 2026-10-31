@@ -65,10 +65,26 @@ Qualquer máquina Linux pequena na rede dos telefones serve (VM, mini PC, Raspbe
 
 ```bash
 # instala direto do GitHub (precisa de acesso à internet no servidor):
-curl -fsSL https://raw.githubusercontent.com/ecruz-acamps/provisioning_IPphone/main/instalar_servidor.sh \
-  | sudo bash -s -- --rede 192.168.0.0/16                  # rede dos telefones
-#   (--sem-ftp pula o FTP; --sem-painel pula o painel web)
+curl -fsSL https://raw.githubusercontent.com/ecruz-acamps/provisioning_IPphone/main/instalar_servidor.sh | sudo bash
+#   (--sem-ftp pula o FTP; --sem-painel pula o painel web; --sem-perguntas não pergunta nada)
 ```
+
+O instalador vai perguntando, com o valor atual entre colchetes (Enter mantém):
+
+1. rede dos telefones (ex.: `192.168.0.0/16`; várias separadas por espaço);
+2. IP e porta do PABX;
+3. padrão de numeração: prefixo do usuário SIP (`5541`) e prefixo padrão dos ramais (`3310`);
+4. título no display e VLAN de voz do TIP 235G;
+5. na primeira instalação, se deve se atualizar sozinho pelo GitHub;
+6. no fim, oferece cadastrar os telefones um a um (modelo, MAC, prefixo, ramal, nome e senha).
+
+Nada disso é obrigatório ali: tudo pode ser feito depois pelo painel. Rodar o instalador de novo
+pergunta outra vez (e serve para corrigir o PABX); `sudo provisiona-atualizar` e o timer de
+atualização nunca perguntam.
+
+**Já instalou?** Não precisa rodar nada no terminal: no painel, aba **Ramais › + Novo ramal**,
+informe modelo, MAC, ramal e nome e clique em *Salvar e gerar arquivo* (é o mesmo que o comando
+`provisiona gerar` da seção 6). Para vários telefones, use **Importar planilha**.
 
 Depois, abra o painel (`http://IP-do-servidor:8080`) em **Configurações › PABX e rede dos
 telefones** e confira o **IP do PABX** e a **rede dos telefones**. Os dois podem ser trocados ali a
@@ -116,7 +132,7 @@ Se ele foi instalado com `--sem-ftp` ou `--sem-painel`, repita essas opções ne
 Outras formas:
 - repositório privado ou fork: `git clone` com suas credenciais e rode
   `sudo bash instalar_servidor.sh --repo https://github.com/OUTRO/repo.git --branch main`;
-- servidor sem internet: copie a pasta e rode `sudo bash instalar_servidor.sh --local --rede ...`.
+- servidor sem internet: copie a pasta e rode `sudo bash instalar_servidor.sh --local` (ele pergunta a rede e o PABX).
 
 O instalador:
 - instala **os três servidores**, `tftpd-hpa` (TFTP), `nginx` (HTTP) e `vsftpd` (FTP anônimo

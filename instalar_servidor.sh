@@ -5,7 +5,7 @@
 #
 #  Uso:  sudo ./instalar_servidor.sh [--rede "192.168.0.0/16 10.0.0.0/8"] [--sem-ftp] [--sem-painel]
 #                                    [--repo URL] [--branch main] [--local]
-#                                    [--auto-atualizar | --sem-auto-atualizar]
+#                                    [--auto-atualizar | --sem-auto-atualizar] [--sem-perguntas]
 #
 #  Instalação direto do GitHub (servidor novo, sem baixar nada antes):
 #    curl -fsSL https://raw.githubusercontent.com/ecruz-acamps/provisioning_IPphone/main/instalar_servidor.sh | sudo bash
@@ -32,9 +32,17 @@
 #  ficam em /etc/default/provisionamento e valem nas próximas atualizações.
 #  --auto-atualizar  confere o GitHub a cada 10 minutos e atualiza sozinho
 #                    quando houver commit novo no branch (timer systemd).
+#
+#  Rodando num terminal (inclusive via curl | sudo bash), o instalador
+#  pergunta a rede dos telefones, o IP do PABX, o padrão de numeração e
+#  oferece cadastrar os primeiros telefones. Enter mantém o valor entre
+#  colchetes. Sem terminal (timer de atualização) ou com --sem-perguntas,
+#  não pergunta nada e mantém o que já está salvo.
 # =====================================================================
 set -euo pipefail
-REDE=""; FTP=sim; PAINEL=sim; AUTO_ATUALIZAR=nao
+REDE=""; FTP=sim; PAINEL=sim; AUTO_ATUALIZAR=nao; PERGUNTAR=sim; AUTO_INFORMADO=nao
+PRIMEIRA_VEZ=sim
+[ -f /etc/default/provisionamento ] && PRIMEIRA_VEZ=nao
 REPO="https://github.com/ecruz-acamps/provisioning_IPphone.git"; BRANCH=main
 OPCOES=/etc/default/provisionamento
 # opções da instalação anterior (gravadas no fim deste script)
@@ -51,8 +59,9 @@ while [ $# -gt 0 ]; do
     --repo)   REPO="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
     --local)  LOCAL=sim; shift ;;
-    --auto-atualizar) AUTO_ATUALIZAR=sim; shift ;;
-    --sem-auto-atualizar) AUTO_ATUALIZAR=nao; shift ;;
+    --auto-atualizar) AUTO_ATUALIZAR=sim; AUTO_INFORMADO=sim; shift ;;
+    --sem-auto-atualizar) AUTO_ATUALIZAR=nao; AUTO_INFORMADO=sim; shift ;;
+    --sem-perguntas) PERGUNTAR=nao; shift ;;
     *) echo "opção desconhecida: $1" >&2; exit 1 ;;
   esac
 done
@@ -61,6 +70,132 @@ case "$REDE" in *[!0-9A-Fa-f.:/,\ ]*) echo "--rede inválida: $REDE (ex.: 192.16
 ORIGEM="$(cd "$(dirname "$(readlink -f "$0")")" 2>/dev/null && pwd || pwd)"
 PROV_DIR=/srv/provisionamento
 APP_DIR=/opt/provisionamento
+# Só pergunta se houver um terminal (curl | bash lê as respostas de /dev/tty).
+if [ "$PERGUNTAR" = sim ] && ! { : </dev/tty; } 2>/dev/null; then PERGUNTAR=nao; fi
+
+# --- perguntas interativas ---------------------------------------------
+# pergunta "texto" "padrão" -> imprime a resposta (Enter = padrão)
+pergunta() {
+  local resp
+  # Ctrl-D / terminal fechado: encerra o instalador (senão os laços de validação não param)
+  read -r -p "   $1${2:+ [$2]}: " resp </dev/tty || { echo >&2; echo "instalação interrompida" >&2; kill $$; exit 1; }
+  printf '%s' "${resp:-$2}"
+}
+sim_nao() {   # sim_nao "texto" s|n  -> retorna 0 para sim
+  local resp
+  read -r -p "   $1 [$( [ "$2" = s ] && echo S/n || echo s/N )]: " resp </dev/tty || resp=""
+  case "${resp:-$2}" in [sS]*) return 0 ;; *) return 1 ;; esac
+}
+conf_le() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}.*/\1/p" "$APP_DIR/provisiona.conf" | head -1; }
+conf_grava() {
+  local v="${2//&/\\&}"   # & tem significado no sed
+  if grep -q "^$1=" "$APP_DIR/provisiona.conf"; then
+    sed -i "s|^$1=.*|$1=\"$v\"|" "$APP_DIR/provisiona.conf"
+  else
+    printf '%s="%s"\n' "$1" "$2" >> "$APP_DIR/provisiona.conf"
+  fi
+}
+valida_rede() { case "$1" in ""|*[!0-9A-Fa-f.:/,\ ]*) return 1 ;; esac; }
+valida_host() {   # IPv4 (cada parte até 255), IPv6 ou nome DNS (172.20.1 não passa)
+  local IFS=. p
+  if [[ "$1" =~ ^[0-9.]+$ ]]; then
+    [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+    for p in $1; do [ "$p" -le 255 ] || return 1; done
+    return 0
+  fi
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.:-]*[A-Za-z0-9])?$ ]]
+}
+
+configurar_interativo() {
+  local v
+  echo
+  echo ">> Configuração (Enter mantém o valor entre colchetes)"
+  if [ -z "$REDE" ]; then
+    while :; do
+      v="$(pergunta "Rede dos telefones (quem pode baixar os arquivos; várias separadas por espaço)" "$(conf_le REDE_TELEFONES || true)")"
+      v="$(printf '%s' "${v//,/ }" | tr -s ' ')"
+      valida_rede "$v" && break
+      echo "   rede inválida: use o formato 192.168.0.0/16"
+    done
+    REDE="$v"
+  fi
+  PABX_ANTES="$(conf_le SIP_SERVER)"
+  while :; do
+    v="$(pergunta "IP do PABX (servidor SIP onde os ramais registram)" "$PABX_ANTES")"
+    valida_host "$v" && break
+    echo "   endereço inválido (ex.: 172.20.1.18)"
+  done
+  conf_grava SIP_SERVER "$v"
+  while :; do
+    v="$(pergunta "Porta SIP do PABX" "$(conf_le SIP_PORT)")"
+    [[ "$v" =~ ^[0-9]{1,5}$ ]] && [ "$v" -ge 1 ] && [ "$v" -le 65535 ] && break
+    echo "   porta inválida"
+  done
+  conf_grava SIP_PORT "$v"
+  echo "   Usuário SIP = prefixo do usuário + prefixo + ramal (ex.: 5541 + 3310 + 4480 = 554133104480)"
+  while :; do
+    v="$(pergunta "Prefixo do usuário SIP (- para nenhum)" "$(conf_le PREFIXO_USUARIO || true)")"
+    [ "$v" = - ] && v=""
+    [[ "$v" =~ ^[0-9]*$ ]] && break
+    echo "   só números"
+  done
+  conf_grava PREFIXO_USUARIO "$v"
+  while :; do
+    v="$(pergunta "Prefixo padrão dos ramais (- para nenhum)" "$(conf_le PREFIXO_PADRAO || true)")"
+    [ "$v" = - ] && v=""
+    [[ "$v" =~ ^[0-9A-Za-z]*$ ]] && break
+    echo "   só letras e números"
+  done
+  conf_grava PREFIXO_PADRAO "$v"
+  while :; do
+    v="$(pergunta "Título no display do TIP 235G (- para nenhum)" "$(conf_le LCD_TITULO || true)")"
+    [ "$v" = - ] && v=""
+    [[ ${#v} -le 32 && ! "$v" =~ [\"\`\$\\\|] ]] && break
+    echo "   até 32 caracteres, sem aspas, \$, \\ ou |"
+  done
+  conf_grava LCD_TITULO "$v"
+  while :; do
+    v="$(pergunta "VLAN de voz do TIP 235G (- para não mexer na VLAN)" "$(conf_le VLAN_ID || true)")"
+    [ "$v" = - ] && v=""
+    [[ "$v" =~ ^[0-9]{0,4}$ ]] && break
+    echo "   número da VLAN (1 a 4094) ou -"
+  done
+  conf_grava VLAN_ID "$v"
+  if [ "$PRIMEIRA_VEZ" = sim ] && [ "$AUTO_INFORMADO" = nao ]; then
+    if sim_nao "Atualizar sozinho pelo GitHub a cada 10 minutos?" s; then AUTO_ATUALIZAR=sim; else AUTO_ATUALIZAR=nao; fi
+  fi
+}
+
+cadastrar_telefones() {
+  local modelos modelo ultimo=tip235g mac prefixo ramal nome senha
+  modelos="$(awk -F'|' '/^[[:space:]]*(#|$)/ { next } { gsub(/[[:space:]]/, "", $1); printf "%s ", $1 }' "$APP_DIR/modelos.conf")"
+  echo
+  echo ">> Telefones (também dá para cadastrar depois no painel, aba Ramais > + Novo ramal)"
+  sim_nao "Cadastrar um telefone agora?" s || return 0
+  while :; do
+    while :; do
+      modelo="$(pergunta "Modelo (${modelos% })" "$ultimo")"
+      modelo="${modelo,,}"
+      [[ " $modelos" == *" $modelo "* ]] && { ultimo="$modelo"; break; }
+      echo "   modelo desconhecido"
+    done
+    while :; do
+      mac="$(pergunta "MAC do telefone (etiqueta embaixo do aparelho)" "")"
+      [[ "$(printf '%s' "$mac" | tr -d ':.\- ')" =~ ^[0-9A-Fa-f]{12}$ ]] && break
+      echo "   MAC inválido (12 dígitos, ex.: 24:fd:0d:35:0b:0d)"
+    done
+    prefixo="$(pergunta "Prefixo (- para nenhum)" "${prefixo:-$(conf_le PREFIXO_PADRAO || true)}")"
+    while ramal="$(pergunta "Ramal" "")"; [ -z "$ramal" ]; do echo "   informe o ramal"; done
+    while nome="$(pergunta "Nome / setor" "")"; [ -z "$nome" ]; do echo "   informe o nome"; done
+    senha="$(pergunta "Senha SIP (Enter = igual ao usuário)" "")"
+    if "$APP_DIR/provisiona.sh" gerar "$modelo" "$mac" "${prefixo:--}" "$ramal" "$nome" ${senha:+"$senha"}; then
+      echo "   ok: telefone cadastrado"
+    else
+      echo "   não deu certo (veja a mensagem acima)"
+    fi
+    sim_nao "Cadastrar outro telefone?" n || break
+  done
+}
 
 echo ">> Instalando pacotes"
 export DEBIAN_FRONTEND=noninteractive
@@ -101,6 +236,8 @@ if [ "$ORIGEM" != "$APP_DIR" ]; then
 fi
 chmod 755 "$APP_DIR"/*.sh
 chmod 600 "$APP_DIR/provisiona.conf"
+PABX_ANTES=""
+[ "$PERGUNTAR" = sim ] && configurar_interativo
 
 # Rede dos telefones: --rede grava no provisiona.conf; sem --rede mantém a já salva.
 if [ -n "$REDE" ]; then
@@ -295,6 +432,13 @@ else
   systemctl disable --now provisiona-atualizar.timer >/dev/null 2>&1 || true
 fi
 
+# Os arquivos dos telefones levam o IP do PABX: se ele mudou, regera os já cadastrados.
+if [ -n "$PABX_ANTES" ] && [ "$(conf_le SIP_SERVER)" != "$PABX_ANTES" ] && [ -s "$(conf_le RAMAIS_CSV)" ]; then
+  echo ">> IP do PABX mudou: regerando os arquivos dos telefones"
+  "$APP_DIR/provisiona.sh" regerar || true
+fi
+[ "$PERGUNTAR" = sim ] && cadastrar_telefones
+
 IP="$(hostname -I | awk '{print $1}')"
 cat <<FIM
 
@@ -307,9 +451,11 @@ $( [ "$PAINEL" = sim ] && echo "  Painel web:    http://$IP:8080/   usuário adm
 $( [ -n "$SENHA_MSG" ] && echo "  $SENHA_MSG   (anote; trocar: sudo -u provisiona python3 $APP_DIR/painel/painel.py --definir-senha)" )
 
 Próximos passos:
-  1. No painel (Configurações), confira o IP do PABX e a rede dos telefones
-  2. Aponte o DHCP da rede para este servidor (opção 66 = $IP). Veja $APP_DIR/dhcp/
-  3. provisiona gerar tip235g 24fd0d350b0d 3310 4480 DIOMAI-CT
+  1. Painel http://$IP:8080/ > Configurações: confira o IP do PABX ($(conf_le SIP_SERVER)) e a rede dos telefones
+  2. Painel > Ramais > "+ Novo ramal": modelo, MAC, ramal e nome de cada telefone
+     (ou "Importar planilha" para vários de uma vez)
+  3. Aponte o DHCP da rede para este servidor (opção 66 = $IP). Veja $APP_DIR/dhcp/
+  Pelo terminal, o passo 2 é: provisiona gerar <modelo> <mac> <prefixo> <ramal> <nome>
 FIM
 
 # provisiona-atualizar compara com isto para saber se há versão nova
