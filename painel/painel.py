@@ -17,6 +17,7 @@ import csv
 import hashlib
 import hmac
 import io
+import ipaddress
 import json
 import os
 import re
@@ -41,6 +42,7 @@ NGINX_LOG = "/var/log/nginx/provisionamento.log"
 FTP_LOG = "/var/log/vsftpd-provisionamento.log"
 PORTA = int(os.environ.get("PAINEL_PORTA", "8080"))
 USUARIO = "admin"
+REDE_ESTADO_DIR = "/var/lib/provisionamento-rede"
 
 CHAVES_CONF = {
     "SIP_SERVER": r"^[A-Za-z0-9.\-:]+$",
@@ -57,6 +59,7 @@ CHAVES_CONF = {
     "VLAN_ID": r"^(\d{1,4})?$",
 }
 RE_MAC = re.compile(r"^[0-9a-f]{12}$")
+RE_HOST = re.compile(r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9\-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z]([A-Za-z0-9\-]{0,61}[A-Za-z0-9])?$")
 
 
 # ---------------------------------------------------------------- utilidades
@@ -98,6 +101,45 @@ def grava_conf(novos):
         f.write("\n".join(linhas) + "\n")
     os.chmod(tmp, 0o600)
     os.replace(tmp, CONF)
+
+
+def valida_sip_server(v):
+    """IP (v4/v6) ou nome DNS. Recusa coisas como 172.20.1 ou 300.1.1.1."""
+    try:
+        ipaddress.ip_address(v)
+        return True
+    except ValueError:
+        return bool(RE_HOST.match(v)) and not re.match(r"^[0-9.]+$", v)
+
+
+def normaliza_redes(texto):
+    """'192.168.0.0/16, 10.1.2.0/24' -> '192.168.0.0/16 10.1.2.0/24'. ValueError se inválida."""
+    itens = re.split(r"[\s,;]+", (texto or "").strip())
+    itens = [i for i in itens if i]
+    if not itens:
+        raise ValueError("informe ao menos uma rede")
+    if len(itens) > 32:
+        raise ValueError("no máximo 32 redes")
+    redes = []
+    for i in itens:
+        try:
+            r = ipaddress.ip_network(i, strict=False)
+        except ValueError:
+            raise ValueError(f"rede inválida: {i} (use o formato 192.168.0.0/16)")
+        if r.prefixlen == 0:
+            raise ValueError(f"{i} libera a internet inteira; informe a rede dos telefones")
+        if str(r) not in redes:
+            redes.append(str(r))
+    return " ".join(redes)
+
+
+def estado_rede():
+    """O que provisiona-aplicar-rede (root) já aplicou no nginx/ufw."""
+    try:
+        estado, quando, resto = open(os.path.join(REDE_ESTADO_DIR, "status")).read().strip().split(" ", 2)
+        return {"estado": estado, "quando": int(quando), "detalhe": resto}
+    except (OSError, ValueError):
+        return {"estado": "desconhecido", "quando": 0, "detalhe": ""}
 
 
 def ramais_csv_path():
@@ -321,7 +363,11 @@ class Painel(BaseHTTPRequestHandler):
             return self._json({"modelos": le_modelos()})
         if caminho == "/api/config":
             c = le_conf()
-            return self._json({k: c.get(k, "") for k in CHAVES_CONF} | {"PROV_DIR": c.get("PROV_DIR", ""), "RAMAIS_CSV": ramais_csv_path(), "VLAN_DHCP_OPCAO": c.get("VLAN_DHCP_OPCAO", "")})
+            return self._json({k: c.get(k, "") for k in CHAVES_CONF} | {
+                "PROV_DIR": c.get("PROV_DIR", ""), "RAMAIS_CSV": ramais_csv_path(),
+                "VLAN_DHCP_OPCAO": c.get("VLAN_DHCP_OPCAO", ""),
+                "REDE_TELEFONES": c.get("REDE_TELEFONES", ""), "REDE_STATUS": estado_rede(),
+                "SEU_IP": self.client_address[0]})
         if caminho == "/api/atividade":
             cadastrados = {r["mac"]: r for r in le_ramais()}
             ev = atividade()
@@ -393,11 +439,34 @@ class Painel(BaseHTTPRequestHandler):
                     if not re.match(padrao, v):
                         return self._json({"erro": f"valor inválido para {k}"}, 400)
                     novos[k] = v
-            if not novos.get("SIP_SERVER", "x"):
-                return self._json({"erro": "SIP_SERVER é obrigatório"}, 400)
+            if "SIP_SERVER" in novos:
+                if not novos["SIP_SERVER"]:
+                    return self._json({"erro": "Informe o IP do PABX (servidor SIP)"}, 400)
+                if not valida_sip_server(novos["SIP_SERVER"]):
+                    return self._json({"erro": f"Servidor SIP inválido: {novos['SIP_SERVER']} (ex.: 172.20.1.18)"}, 400)
+            if "SIP_PORT" in novos and not 1 <= int(novos["SIP_PORT"] or 0) <= 65535:
+                return self._json({"erro": "Porta SIP deve ficar entre 1 e 65535"}, 400)
+            if "REDE_TELEFONES" in d:
+                try:
+                    novos["REDE_TELEFONES"] = normaliza_redes(str(d["REDE_TELEFONES"]))
+                except ValueError as e:
+                    return self._json({"erro": f"Rede dos telefones: {e}"}, 400)
+                # Com ufw ativo, o painel (porta 8080) só abre para essa rede: avisa antes de trancar o próprio usuário.
+                try:
+                    cliente = ipaddress.ip_address(self.client_address[0])
+                    fora = not cliente.is_loopback and not any(
+                        cliente in ipaddress.ip_network(r) for r in novos["REDE_TELEFONES"].split())
+                except ValueError:
+                    fora = False
+                if fora and not d.get("confirmar_fora_da_rede"):
+                    return self._json({"erro": f"Seu computador ({cliente}) fica fora dessa rede", "fora_da_rede": True}, 409)
+            atual = le_conf()
+            mudou_pabx = any(k in novos and novos[k] != atual.get(k, "") for k in ("SIP_SERVER", "SIP_PORT"))
             grava_conf(novos)
-            ok, saida = roda([PROVISIONA, "regerar"]) if d.get("regerar") else (True, "")
-            return self._json({"ok": ok, "saida": saida})
+            # Os arquivos dos telefones levam o IP do PABX: se ele mudou, regera todos.
+            regerar = d.get("regerar") or mudou_pabx
+            ok, saida = roda([PROVISIONA, "regerar"]) if regerar else (True, "")
+            return self._json({"ok": ok, "saida": saida, "regerado": bool(regerar)})
 
         if caminho == "/api/template":
             modelo = str(d.get("modelo", "")).lower()
